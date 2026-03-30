@@ -1,5 +1,6 @@
 .venv/
 .local/
+.streamlit/
 __pycache__/
 *.pyc
 *.pyo
