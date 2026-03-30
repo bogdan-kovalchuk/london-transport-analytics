@@ -2,7 +2,9 @@
 
 End-to-end batch analytics project for London public transport demand, built as a DataTalksClub Data Engineering Zoomcamp course project.
 
-![London Transport Analytics dashboard](dashboard/assets/london_transport_dashboard.png)
+<p align="center">
+  <img src="dashboard/assets/london_transport_dashboard_focus.png" alt="London Transport Analytics dashboard preview focused on the summary cards and required charts" width="980" />
+</p>
 
 ## Problem statement
 
@@ -122,9 +124,9 @@ The Streamlit dashboard contains the two required Zoomcamp tiles:
 
 The app prefers the BigQuery mart and falls back to the public CSV only if cloud credentials are not configured.
 
-Dashboard screenshot:
+Dashboard preview image:
 
-- [dashboard/assets/london_transport_dashboard.png](dashboard/assets/london_transport_dashboard.png)
+- [dashboard/assets/london_transport_dashboard_focus.png](dashboard/assets/london_transport_dashboard_focus.png)
 
 ## Zoomcamp criteria mapping
 
@@ -292,16 +294,6 @@ The dashboard reads these environment variables:
 - `LTA_BQ_MART_TABLE`
 - `GOOGLE_APPLICATION_CREDENTIALS`
 
-### 8. Capture the dashboard screenshot
-
-```bash
-python3 scripts/capture_dashboard_screenshot.py
-```
-
-The screenshot is saved to:
-
-- `dashboard/assets/london_transport_dashboard.png`
-
 ## Validation results
 
 Validated in this environment on March 30, 2026.
@@ -336,3 +328,4 @@ Observed BigQuery row counts after the successful run:
 - Add automated tests for the mart logic
 - Add CI checks for Terraform validation and dashboard startup
 - Publish a public BI layer such as Looker Studio on top of the BigQuery views
+
