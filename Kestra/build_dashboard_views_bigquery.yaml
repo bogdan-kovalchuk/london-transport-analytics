@@ -1,0 +1,72 @@
+id: build_dashboard_views_bigquery
+namespace: london_transport
+
+tasks:
+  - id: build_dashboard_views
+    type: io.kestra.plugin.scripts.python.Commands
+    beforeCommands:
+      - pip install google-cloud-bigquery
+    containerImage: python:3.11-slim
+    commands:
+      - python main.py
+    inputFiles:
+      main.py: |
+        import base64
+        import json
+        import pathlib
+
+        from google.cloud import bigquery
+        from google.oauth2 import service_account
+
+        credentials_payload = base64.b64decode("{{ secret('GCP_SERVICE_ACCOUNT_B64') }}").decode("utf-8")
+        project_id = "{{ kv('GCP_PROJECT_ID') }}"
+        dataset_id = "{{ kv('BQ_DATASET_NAME') }}"
+        mart_table = "{{ kv('BQ_MART_TABLE_NAME') }}"
+        time_view = "{{ kv('BQ_DASHBOARD_TIME_VIEW_NAME') }}"
+        category_view = "{{ kv('BQ_DASHBOARD_CATEGORY_VIEW_NAME') }}"
+
+        credentials = service_account.Credentials.from_service_account_info(json.loads(credentials_payload))
+        client = bigquery.Client(project=project_id, credentials=credentials)
+
+        time_query = f"""
+        CREATE OR REPLACE VIEW `{project_id}.{dataset_id}.{time_view}` AS
+        SELECT
+            period_beginning_date,
+            year_month,
+            SUM(journeys_m) AS total_journeys_m
+        FROM `{project_id}.{dataset_id}.{mart_table}`
+        GROUP BY period_beginning_date, year_month
+        ORDER BY period_beginning_date
+        """
+
+        category_query = f"""
+        CREATE OR REPLACE VIEW `{project_id}.{dataset_id}.{category_view}` AS
+        SELECT
+            transport_type,
+            SUM(journeys_m) AS total_journeys_m
+        FROM `{project_id}.{dataset_id}.{mart_table}`
+        GROUP BY transport_type
+        ORDER BY total_journeys_m DESC
+        """
+
+        client.query(time_query).result()
+        client.query(category_query).result()
+
+        pathlib.Path("dashboard_views_result.json").write_text(
+            json.dumps(
+                {
+                    "time_view": f"{project_id}.{dataset_id}.{time_view}",
+                    "category_view": f"{project_id}.{dataset_id}.{category_view}",
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+    warningOnStdErr: false
+    outputFiles:
+      - dashboard_views_result.json
+
+  - id: purge_files
+    type: io.kestra.plugin.core.storage.PurgeCurrentExecutionFiles
+    description: Disable this if you want to inspect execution artifacts inside Kestra.
+    disabled: false

@@ -1,0 +1,57 @@
+id: set_kv
+namespace: london_transport
+
+tasks:
+  - id: gcp_project_id
+    type: io.kestra.plugin.core.kv.Set
+    key: GCP_PROJECT_ID
+    kvType: STRING
+    value: london-transport-analytics
+
+  - id: gcp_location
+    type: io.kestra.plugin.core.kv.Set
+    key: GCP_LOCATION
+    kvType: STRING
+    value: europe-west2
+
+  - id: gcp_bucket_name
+    type: io.kestra.plugin.core.kv.Set
+    key: GCP_BUCKET_NAME
+    kvType: STRING
+    value: london-transport-analytics-raw-711265235468
+
+  - id: dataset_url
+    type: io.kestra.plugin.core.kv.Set
+    key: DATASET_URL
+    kvType: STRING
+    value: https://data.london.gov.uk/download/ep8ow/06a805f6-77c6-481a-8b08-ddef56afffdd/tfl-journeys-type.csv
+
+  - id: bq_dataset_name
+    type: io.kestra.plugin.core.kv.Set
+    key: BQ_DATASET_NAME
+    kvType: STRING
+    value: london_transport_dw
+
+  - id: bq_raw_table_name
+    type: io.kestra.plugin.core.kv.Set
+    key: BQ_RAW_TABLE_NAME
+    kvType: STRING
+    value: transport_journeys_raw
+
+  - id: bq_mart_table_name
+    type: io.kestra.plugin.core.kv.Set
+    key: BQ_MART_TABLE_NAME
+    kvType: STRING
+    value: transport_journeys_mart
+
+  - id: bq_dashboard_time_view_name
+    type: io.kestra.plugin.core.kv.Set
+    key: BQ_DASHBOARD_TIME_VIEW_NAME
+    kvType: STRING
+    value: transport_journeys_over_time_v
+
+  - id: bq_dashboard_category_view_name
+    type: io.kestra.plugin.core.kv.Set
+    key: BQ_DASHBOARD_CATEGORY_VIEW_NAME
+    kvType: STRING
+    value: transport_type_distribution_v

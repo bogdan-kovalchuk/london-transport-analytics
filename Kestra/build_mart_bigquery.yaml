@@ -1,0 +1,185 @@
+id: build_mart_bigquery
+namespace: london_transport
+
+tasks:
+  - id: build_transport_mart
+    type: io.kestra.plugin.scripts.python.Commands
+    beforeCommands:
+      - pip install google-cloud-bigquery
+    containerImage: python:3.11-slim
+    commands:
+      - python main.py
+    inputFiles:
+      main.py: |
+        import base64
+        import json
+        import pathlib
+
+        from google.cloud import bigquery
+        from google.oauth2 import service_account
+
+        credentials_payload = base64.b64decode("{{ secret('GCP_SERVICE_ACCOUNT_B64') }}").decode("utf-8")
+        project_id = "{{ kv('GCP_PROJECT_ID') }}"
+        dataset_id = "{{ kv('BQ_DATASET_NAME') }}"
+        raw_table = "{{ kv('BQ_RAW_TABLE_NAME') }}"
+        mart_table = "{{ kv('BQ_MART_TABLE_NAME') }}"
+
+        credentials = service_account.Credentials.from_service_account_info(json.loads(credentials_payload))
+        client = bigquery.Client(project=project_id, credentials=credentials)
+
+        query = f"""
+        CREATE OR REPLACE TABLE `{project_id}.{dataset_id}.{mart_table}`
+        PARTITION BY period_beginning_date
+        CLUSTER BY transport_type
+        AS
+        WITH raw_clean AS (
+            SELECT
+                period_and_financial_year,
+                SAFE_CAST(reporting_period AS INT64) AS reporting_period,
+                SAFE_CAST(days_in_period AS INT64) AS days_in_period,
+                SAFE.PARSE_DATE('%d-%b-%y', period_beginning) AS period_beginning_date,
+                SAFE.PARSE_DATE('%d-%b-%y', period_ending) AS period_ending_date,
+                SAFE_CAST(bus_journeys_m AS FLOAT64) AS bus_journeys_m,
+                SAFE_CAST(underground_journeys_m AS FLOAT64) AS underground_journeys_m,
+                SAFE_CAST(dlr_journeys_m AS FLOAT64) AS dlr_journeys_m,
+                SAFE_CAST(tram_journeys_m AS FLOAT64) AS tram_journeys_m,
+                SAFE_CAST(overground_journeys_m AS FLOAT64) AS overground_journeys_m,
+                SAFE_CAST(london_cable_car_journeys_m AS FLOAT64) AS london_cable_car_journeys_m,
+                SAFE_CAST(tfl_rail_journeys_m AS FLOAT64) AS tfl_rail_journeys_m
+            FROM `{project_id}.{dataset_id}.{raw_table}`
+        ),
+        long_format AS (
+            SELECT
+                period_and_financial_year,
+                reporting_period,
+                days_in_period,
+                period_beginning_date,
+                period_ending_date,
+                EXTRACT(YEAR FROM period_beginning_date) AS year,
+                EXTRACT(MONTH FROM period_beginning_date) AS month,
+                FORMAT_DATE('%Y-%m', period_beginning_date) AS year_month,
+                'Bus' AS transport_type,
+                bus_journeys_m AS journeys_m
+            FROM raw_clean
+
+            UNION ALL
+
+            SELECT
+                period_and_financial_year,
+                reporting_period,
+                days_in_period,
+                period_beginning_date,
+                period_ending_date,
+                EXTRACT(YEAR FROM period_beginning_date) AS year,
+                EXTRACT(MONTH FROM period_beginning_date) AS month,
+                FORMAT_DATE('%Y-%m', period_beginning_date) AS year_month,
+                'Underground' AS transport_type,
+                underground_journeys_m AS journeys_m
+            FROM raw_clean
+
+            UNION ALL
+
+            SELECT
+                period_and_financial_year,
+                reporting_period,
+                days_in_period,
+                period_beginning_date,
+                period_ending_date,
+                EXTRACT(YEAR FROM period_beginning_date) AS year,
+                EXTRACT(MONTH FROM period_beginning_date) AS month,
+                FORMAT_DATE('%Y-%m', period_beginning_date) AS year_month,
+                'DLR' AS transport_type,
+                dlr_journeys_m AS journeys_m
+            FROM raw_clean
+
+            UNION ALL
+
+            SELECT
+                period_and_financial_year,
+                reporting_period,
+                days_in_period,
+                period_beginning_date,
+                period_ending_date,
+                EXTRACT(YEAR FROM period_beginning_date) AS year,
+                EXTRACT(MONTH FROM period_beginning_date) AS month,
+                FORMAT_DATE('%Y-%m', period_beginning_date) AS year_month,
+                'Tram' AS transport_type,
+                tram_journeys_m AS journeys_m
+            FROM raw_clean
+
+            UNION ALL
+
+            SELECT
+                period_and_financial_year,
+                reporting_period,
+                days_in_period,
+                period_beginning_date,
+                period_ending_date,
+                EXTRACT(YEAR FROM period_beginning_date) AS year,
+                EXTRACT(MONTH FROM period_beginning_date) AS month,
+                FORMAT_DATE('%Y-%m', period_beginning_date) AS year_month,
+                'Overground' AS transport_type,
+                overground_journeys_m AS journeys_m
+            FROM raw_clean
+
+            UNION ALL
+
+            SELECT
+                period_and_financial_year,
+                reporting_period,
+                days_in_period,
+                period_beginning_date,
+                period_ending_date,
+                EXTRACT(YEAR FROM period_beginning_date) AS year,
+                EXTRACT(MONTH FROM period_beginning_date) AS month,
+                FORMAT_DATE('%Y-%m', period_beginning_date) AS year_month,
+                'London Cable Car' AS transport_type,
+                london_cable_car_journeys_m AS journeys_m
+            FROM raw_clean
+
+            UNION ALL
+
+            SELECT
+                period_and_financial_year,
+                reporting_period,
+                days_in_period,
+                period_beginning_date,
+                period_ending_date,
+                EXTRACT(YEAR FROM period_beginning_date) AS year,
+                EXTRACT(MONTH FROM period_beginning_date) AS month,
+                FORMAT_DATE('%Y-%m', period_beginning_date) AS year_month,
+                'TfL Rail' AS transport_type,
+                tfl_rail_journeys_m AS journeys_m
+            FROM raw_clean
+        )
+        SELECT *
+        FROM long_format
+        WHERE period_beginning_date IS NOT NULL
+          AND journeys_m IS NOT NULL
+        """
+
+        job = client.query(query)
+        job.result()
+
+        destination_table = client.get_table(f"{project_id}.{dataset_id}.{mart_table}")
+
+        pathlib.Path("build_mart_result.json").write_text(
+            json.dumps(
+                {
+                    "destination_table": f"{project_id}.{dataset_id}.{mart_table}",
+                    "rows_loaded": destination_table.num_rows,
+                    "partition_field": "period_beginning_date",
+                    "cluster_fields": destination_table.clustering_fields,
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+    warningOnStdErr: false
+    outputFiles:
+      - build_mart_result.json
+
+  - id: purge_files
+    type: io.kestra.plugin.core.storage.PurgeCurrentExecutionFiles
+    description: Disable this if you want to inspect execution artifacts inside Kestra.
+    disabled: false

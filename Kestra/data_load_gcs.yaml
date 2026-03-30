@@ -1,0 +1,63 @@
+id: data_load_gcs
+namespace: london_transport
+
+variables:
+  dataset_name: tfl_journeys_by_type
+  extract_date: "{{ now() | date('yyyy-MM-dd') }}"
+  file_name: "{{ vars.dataset_name }}_{{ vars.extract_date }}.csv"
+  local_file_name: extract.csv
+  gcs_file: "gs://{{ kv('GCP_BUCKET_NAME') }}/raw/{{ vars.dataset_name }}/extract_date={{ vars.extract_date }}/{{ vars.file_name }}"
+  data: "{{ outputs.fetch_dataset.outputFiles['extract.csv'] }}"
+
+tasks:
+  - id: fetch_dataset
+    type: io.kestra.plugin.scripts.python.Commands
+    beforeCommands:
+      - pip install requests
+    containerImage: python:3.11-slim
+    commands:
+      - python main.py
+    inputFiles:
+      main.py: |
+        import csv
+        import pathlib
+        import requests
+
+        dataset_url = "{{ kv('DATASET_URL') }}"
+        output_file = pathlib.Path("{{ vars.local_file_name }}")
+
+        response = requests.get(dataset_url, timeout=120)
+        response.raise_for_status()
+        output_file.write_bytes(response.content)
+
+        with output_file.open("r", encoding="utf-8-sig", newline="") as csv_file:
+            reader = csv.reader(csv_file)
+            rows = list(reader)
+
+        if len(rows) < 2:
+            raise ValueError("Downloaded CSV is empty or does not contain data rows.")
+
+        header = rows[0]
+        if len(header) < 2:
+            raise ValueError("Downloaded CSV does not have the expected tabular structure.")
+    warningOnStdErr: false
+    outputFiles:
+      - "extract.csv"
+
+  - id: upload_to_gcs
+    type: io.kestra.plugin.gcp.gcs.Upload
+    from: "{{ render(vars.data) }}"
+    to: "{{ render(vars.gcs_file) }}"
+
+  - id: purge_files
+    type: io.kestra.plugin.core.storage.PurgeCurrentExecutionFiles
+    description: Disable this if you want to inspect execution artifacts inside Kestra.
+    disabled: false
+
+pluginDefaults:
+  - type: io.kestra.plugin.gcp
+    values:
+      serviceAccount: "{{ secret('GCP_SERVICE_ACCOUNT') }}"
+      projectId: "{{ kv('GCP_PROJECT_ID') }}"
+      location: "{{ kv('GCP_LOCATION') }}"
+      bucket: "{{ kv('GCP_BUCKET_NAME') }}"

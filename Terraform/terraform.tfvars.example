@@ -1,0 +1,5 @@
+project         = "your-gcp-project-id"
+region          = "europe-west2"
+location        = "europe-west2"
+gcs_bucket_name = "your-unique-london-transport-bucket"
+bq_dataset_name = "london_transport_dw"

@@ -1,0 +1,96 @@
+id: gcs_to_bigquery_raw
+namespace: london_transport
+
+variables:
+  dataset_name: tfl_journeys_by_type
+  raw_prefix: "raw/{{ vars.dataset_name }}/"
+
+tasks:
+  - id: load_latest_raw_to_bigquery
+    type: io.kestra.plugin.scripts.python.Commands
+    beforeCommands:
+      - pip install google-cloud-storage google-cloud-bigquery
+    containerImage: python:3.11-slim
+    commands:
+      - python main.py
+    inputFiles:
+      main.py: |
+        import base64
+        import json
+        import pathlib
+
+        from google.cloud import bigquery
+        from google.cloud import storage
+        from google.oauth2 import service_account
+
+        credentials_payload = base64.b64decode("{{ secret('GCP_SERVICE_ACCOUNT_B64') }}").decode("utf-8")
+        project_id = "{{ kv('GCP_PROJECT_ID') }}"
+        bucket_name = "{{ kv('GCP_BUCKET_NAME') }}"
+        dataset_id = "{{ kv('BQ_DATASET_NAME') }}"
+        table_id = "{{ kv('BQ_RAW_TABLE_NAME') }}"
+        prefix = "raw/{{ vars.dataset_name }}/"
+
+        credentials = service_account.Credentials.from_service_account_info(json.loads(credentials_payload))
+
+        storage_client = storage.Client(project=project_id, credentials=credentials)
+        bucket = storage_client.bucket(bucket_name)
+        blobs = list(bucket.list_blobs(prefix=prefix))
+
+        csv_blobs = [blob for blob in blobs if blob.name.endswith(".csv")]
+        if not csv_blobs:
+            raise ValueError(f"No raw CSV files found in gs://{bucket_name}/{prefix}")
+
+        latest_blob = max(csv_blobs, key=lambda blob: blob.updated)
+        source_uri = f"gs://{bucket_name}/{latest_blob.name}"
+
+        bq_client = bigquery.Client(project=project_id, credentials=credentials)
+        table_ref = f"{project_id}.{dataset_id}.{table_id}"
+
+        schema = [
+            bigquery.SchemaField("period_and_financial_year", "STRING"),
+            bigquery.SchemaField("reporting_period", "STRING"),
+            bigquery.SchemaField("days_in_period", "STRING"),
+            bigquery.SchemaField("period_beginning", "STRING"),
+            bigquery.SchemaField("period_ending", "STRING"),
+            bigquery.SchemaField("bus_journeys_m", "STRING"),
+            bigquery.SchemaField("underground_journeys_m", "STRING"),
+            bigquery.SchemaField("dlr_journeys_m", "STRING"),
+            bigquery.SchemaField("tram_journeys_m", "STRING"),
+            bigquery.SchemaField("overground_journeys_m", "STRING"),
+            bigquery.SchemaField("london_cable_car_journeys_m", "STRING"),
+            bigquery.SchemaField("tfl_rail_journeys_m", "STRING"),
+        ]
+
+        load_config = bigquery.LoadJobConfig(
+            schema=schema,
+            source_format=bigquery.SourceFormat.CSV,
+            skip_leading_rows=1,
+            write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
+            field_delimiter=",",
+            allow_quoted_newlines=False,
+        )
+
+        job = bq_client.load_table_from_uri(source_uri, table_ref, job_config=load_config)
+        job.result()
+
+        destination_table = bq_client.get_table(table_ref)
+
+        pathlib.Path("load_result.json").write_text(
+            json.dumps(
+                {
+                    "source_uri": source_uri,
+                    "destination_table": table_ref,
+                    "rows_loaded": destination_table.num_rows,
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+    warningOnStdErr: false
+    outputFiles:
+      - load_result.json
+
+  - id: purge_files
+    type: io.kestra.plugin.core.storage.PurgeCurrentExecutionFiles
+    description: Disable this if you want to inspect execution artifacts inside Kestra.
+    disabled: false

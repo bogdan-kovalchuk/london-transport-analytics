@@ -1,0 +1,27 @@
+id: end_to_end_pipeline
+namespace: london_transport
+
+tasks:
+  - id: extract_source_to_gcs
+    type: io.kestra.plugin.core.flow.Subflow
+    namespace: london_transport
+    flowId: data_load_gcs
+    wait: true
+
+  - id: load_gcs_to_bigquery_raw
+    type: io.kestra.plugin.core.flow.Subflow
+    namespace: london_transport
+    flowId: gcs_to_bigquery_raw
+    wait: true
+
+  - id: build_bigquery_mart
+    type: io.kestra.plugin.core.flow.Subflow
+    namespace: london_transport
+    flowId: build_mart_bigquery
+    wait: true
+
+  - id: build_dashboard_views
+    type: io.kestra.plugin.core.flow.Subflow
+    namespace: london_transport
+    flowId: build_dashboard_views_bigquery
+    wait: true
